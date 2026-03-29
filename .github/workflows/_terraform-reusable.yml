@@ -1,0 +1,85 @@
+name: _terraform-reusable
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      working_directory:
+        required: true
+        type: string
+      aws_region:
+        required: true
+        type: string
+      aws_role_arn:
+        required: true
+        type: string
+      action:
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working_directory }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws_role_arn }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -input=false -backend-config=backend.hcl
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        if: ${{ inputs.action == 'plan' }}
+        run: terraform plan -input=false -var-file=terraform.tfvars -out=tfplan
+
+      - name: Terraform show
+        if: ${{ inputs.action == 'plan' }}
+        run: terraform show -no-color tfplan > plan.txt
+
+      - name: Comment plan to PR
+        if: ${{ inputs.action == 'plan' && github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('${{ inputs.working_directory }}/plan.txt', 'utf8');
+            const max = 65000;
+            const trimmed = body.length > max ? body.slice(0, max) + '\n...truncated...' : body;
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `### Terraform plan (${{ inputs.environment }})\n\`\`\`\n${trimmed}\n\`\`\``
+            });
+
+      - name: Terraform apply
+        if: ${{ inputs.action == 'apply' }}
+        run: terraform apply -input=false -auto-approve -var-file=terraform.tfvars
