@@ -1,0 +1,12 @@
+aws_profile     = "default"
+name_prefix     = "prod-app"
+my_ip_cidr      = "1.2.3.4/32"
+ami_id          = "ami-xxxxxxxxxxxxxxxxx"
+public_key_path = "/absolute/path/to/id_rsa.pub"
+create_rds      = false
+create_alb      = false
+
+tags = {
+  Environment = "prod"
+  ManagedBy   = "Terraform"
+}
